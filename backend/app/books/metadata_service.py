@@ -3,6 +3,7 @@ from sqlalchemy import select
 from datetime import datetime, timezone
 from app.books.metadata_models import BookMetadata
 from app.core.exceptions import NotFoundError
+from app.admin.service import log_action
 import uuid
 
 

@@ -73,3 +73,22 @@ async def admin_user(db_session):
     db_session.add(user)
     await db_session.flush()
     return user
+
+
+@pytest.fixture
+async def db(db_session):
+    """Alias for db_session to match test naming conventions."""
+    yield db_session
+
+
+@pytest.fixture
+def sample_book_data():
+    return {
+        "title": "Test Book",
+        "author": "Test Author",
+        "description": "A test book description",
+        "file_path": "/data/books/test.epub",
+        "file_format": "epub",
+        "file_size": 1024000,
+        "content_hash": "abc123def456test",
+    }

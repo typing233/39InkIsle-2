@@ -1,5 +1,5 @@
 import client from './client';
-import { ReadingProgress, TOCItem } from '@/types/reader';
+import { ReadingProgress, TOCItem, PdfInfo, CbzInfo } from '@/types/reader';
 
 export const readerApi = {
   getProgress: (bookId: string) =>
@@ -17,4 +17,21 @@ export const readerApi = {
 
   getChapterContent: (bookId: string, chapter: number) =>
     client.get<string>(`/reader/${bookId}/content/${chapter}`, { responseType: 'text' as never }),
+
+  // PDF
+  getPdfInfo: (bookId: string) =>
+    client.get<PdfInfo>(`/reader/${bookId}/pdf/info`),
+
+  getPdfPageUrl: (bookId: string, page: number, dpi = 150) =>
+    `/api/v1/reader/${bookId}/pdf/page/${page}?dpi=${dpi}`,
+
+  getPdfStreamUrl: (bookId: string) =>
+    `/api/v1/reader/${bookId}/pdf/stream`,
+
+  // CBZ
+  getCbzInfo: (bookId: string) =>
+    client.get<CbzInfo>(`/reader/${bookId}/cbz/info`),
+
+  getCbzPageUrl: (bookId: string, page: number) =>
+    `/api/v1/reader/${bookId}/cbz/page/${page}`,
 };

@@ -10,6 +10,10 @@ import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import Library from '@/pages/Library';
 import Reader from '@/pages/Reader';
+import PdfReader from '@/pages/PdfReader';
+import CbzReader from '@/pages/CbzReader';
+import BookDetail from '@/pages/BookDetail';
+import Collections from '@/pages/Collections';
 import SettingsPage from '@/pages/Settings';
 import AdminDashboard from '@/pages/AdminDashboard';
 
@@ -40,10 +44,18 @@ export default function App() {
             <Route path="/read/:bookId" element={
               <ProtectedRoute><Reader /></ProtectedRoute>
             } />
+            <Route path="/read/pdf/:bookId" element={
+              <ProtectedRoute><PdfReader /></ProtectedRoute>
+            } />
+            <Route path="/read/cbz/:bookId" element={
+              <ProtectedRoute><CbzReader /></ProtectedRoute>
+            } />
             <Route element={
               <ProtectedRoute><AppShell /></ProtectedRoute>
             }>
               <Route path="/" element={<Library />} />
+              <Route path="/book/:bookId" element={<BookDetail />} />
+              <Route path="/collections" element={<Collections />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/admin" element={
                 <AdminRoute><AdminDashboard /></AdminRoute>

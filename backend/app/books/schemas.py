@@ -16,6 +16,8 @@ class BookResponse(BaseModel):
     publish_date: date | None
     isbn: str | None
     page_count: int | None
+    avg_rating: float | None = None
+    rating_count: int = 0
     is_available: bool
     created_at: datetime
     tags: list["TagResponse"] = []
@@ -36,9 +38,17 @@ class TagCreate(BaseModel):
 
 class BookSearchParams(BaseModel):
     q: str | None = None
+    q_fuzzy: bool = False
     author: str | None = None
     tag: str | None = None
     format: str | None = None
+    series: str | None = None
+    language: str | None = None
+    rating_min: float | None = None
+    rating_max: float | None = None
+    has_cover: bool | None = None
+    publish_date_from: date | None = None
+    publish_date_to: date | None = None
     sort_by: str = "created_at"
     sort_order: str = "desc"
     page: int = 1

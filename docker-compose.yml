@@ -44,9 +44,13 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:80}
       BOOKS_STORAGE_PATH: /data/books
       COVERS_STORAGE_PATH: /data/covers
+      THUMBNAILS_STORAGE_PATH: /data/thumbnails
+      GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
+      COMICVINE_API_KEY: ${COMICVINE_API_KEY:-}
     volumes:
       - books_storage:/data/books
       - covers:/data/covers
+      - thumbnails:/data/thumbnails
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -55,7 +59,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: ["python", "-m", "arq", "app.importer.tasks.WorkerSettings"]
+    command: ["python", "-m", "arq", "app.tasks.worker.WorkerSettings"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,9 +70,13 @@ services:
       REDIS_URL: redis://redis:6379
       BOOKS_STORAGE_PATH: /data/books
       COVERS_STORAGE_PATH: /data/covers
+      THUMBNAILS_STORAGE_PATH: /data/thumbnails
+      GOOGLE_BOOKS_API_KEY: ${GOOGLE_BOOKS_API_KEY:-}
+      COMICVINE_API_KEY: ${COMICVINE_API_KEY:-}
     volumes:
       - books_storage:/data/books
       - covers:/data/covers
+      - thumbnails:/data/thumbnails
       - ${WATCH_PATH:-./library}:/data/watch:ro
     restart: unless-stopped
 
@@ -87,3 +95,4 @@ volumes:
   redisdata:
   books_storage:
   covers:
+  thumbnails:

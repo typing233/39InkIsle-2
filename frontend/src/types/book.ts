@@ -11,6 +11,8 @@ export interface Book {
   publish_date: string | null;
   isbn: string | null;
   page_count: number | null;
+  avg_rating: number | null;
+  rating_count: number;
   is_available: boolean;
   created_at: string;
   tags: Tag[];
@@ -23,9 +25,17 @@ export interface Tag {
 
 export interface BookSearchParams {
   q?: string;
+  q_fuzzy?: boolean;
   author?: string;
   tag?: string;
+  tags?: string[];
   format?: string;
+  series?: string;
+  language?: string;
+  rating_min?: number;
+  rating_max?: number;
+  publish_date_from?: string;
+  publish_date_to?: string;
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
   page?: number;

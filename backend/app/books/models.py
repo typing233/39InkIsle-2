@@ -1,4 +1,4 @@
-from sqlalchemy import String, Boolean, BigInteger, Integer, Text, Date, ForeignKey, Index
+from sqlalchemy import String, Boolean, BigInteger, Integer, Text, Date, ForeignKey, Index, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import func, Computed
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -24,6 +24,8 @@ class Book(Base):
     publish_date: Mapped[date | None] = mapped_column(Date)
     isbn: Mapped[str | None] = mapped_column(String(20))
     page_count: Mapped[int | None] = mapped_column(Integer)
+    avg_rating: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    rating_count: Mapped[int] = mapped_column(Integer, default=0)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())

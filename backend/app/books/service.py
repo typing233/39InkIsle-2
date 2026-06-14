@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, asc, text
+from sqlalchemy import select, func, desc, asc, text, or_
 from app.books.models import Book, Tag, BookTag
+from app.books.metadata_models import BookMetadata
 from app.books.schemas import BookSearchParams
 from app.core.exceptions import NotFoundError
 from app.admin.service import log_action
@@ -13,10 +14,20 @@ async def search_books(
     query = select(Book).where(Book.is_available == True)
     count_query = select(func.count(func.distinct(Book.id))).select_from(Book).where(Book.is_available == True)
 
+    # Full-text or fuzzy search
     if params.q:
-        ts_query = func.plainto_tsquery("english", params.q)
-        query = query.where(Book.search_vector.op("@@")(ts_query))
-        count_query = count_query.where(Book.search_vector.op("@@")(ts_query))
+        if params.q_fuzzy:
+            similarity_threshold = 0.3
+            sim_filter = or_(
+                func.similarity(Book.title, params.q) > similarity_threshold,
+                func.similarity(Book.author, params.q) > similarity_threshold,
+            )
+            query = query.where(sim_filter)
+            count_query = count_query.where(sim_filter)
+        else:
+            ts_query = func.plainto_tsquery("english", params.q)
+            query = query.where(Book.search_vector.op("@@")(ts_query))
+            count_query = count_query.where(Book.search_vector.op("@@")(ts_query))
 
     if params.author:
         query = query.where(Book.author.ilike(f"%{params.author}%"))
@@ -26,13 +37,52 @@ async def search_books(
         query = query.where(Book.file_format == params.format)
         count_query = count_query.where(Book.file_format == params.format)
 
+    if params.language:
+        query = query.where(Book.language == params.language)
+        count_query = count_query.where(Book.language == params.language)
+
     if params.tag:
         query = query.join(BookTag, Book.id == BookTag.book_id).join(Tag, BookTag.tag_id == Tag.id).where(Tag.name == params.tag)
         count_query = count_query.join(BookTag, Book.id == BookTag.book_id).join(Tag, BookTag.tag_id == Tag.id).where(Tag.name == params.tag)
 
-    sort_column = getattr(Book, params.sort_by, Book.created_at)
-    order_fn = desc if params.sort_order == "desc" else asc
-    query = query.distinct().order_by(order_fn(sort_column))
+    if params.series:
+        query = query.join(BookMetadata, Book.id == BookMetadata.book_id, isouter=True).where(
+            BookMetadata.series_name.ilike(f"%{params.series}%")
+        )
+        count_query = count_query.join(BookMetadata, Book.id == BookMetadata.book_id, isouter=True).where(
+            BookMetadata.series_name.ilike(f"%{params.series}%")
+        )
+
+    if params.rating_min is not None:
+        query = query.where(Book.avg_rating >= params.rating_min)
+        count_query = count_query.where(Book.avg_rating >= params.rating_min)
+
+    if params.rating_max is not None:
+        query = query.where(Book.avg_rating <= params.rating_max)
+        count_query = count_query.where(Book.avg_rating <= params.rating_max)
+
+    if params.has_cover is True:
+        query = query.where(Book.cover_path.isnot(None))
+        count_query = count_query.where(Book.cover_path.isnot(None))
+    elif params.has_cover is False:
+        query = query.where(Book.cover_path.is_(None))
+        count_query = count_query.where(Book.cover_path.is_(None))
+
+    if params.publish_date_from:
+        query = query.where(Book.publish_date >= params.publish_date_from)
+        count_query = count_query.where(Book.publish_date >= params.publish_date_from)
+
+    if params.publish_date_to:
+        query = query.where(Book.publish_date <= params.publish_date_to)
+        count_query = count_query.where(Book.publish_date <= params.publish_date_to)
+
+    # Sort: fuzzy search uses similarity, otherwise use specified column
+    if params.q and params.q_fuzzy:
+        query = query.distinct().order_by(func.similarity(Book.title, params.q).desc())
+    else:
+        sort_column = getattr(Book, params.sort_by, Book.created_at)
+        order_fn = desc if params.sort_order == "desc" else asc
+        query = query.distinct().order_by(order_fn(sort_column))
 
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()

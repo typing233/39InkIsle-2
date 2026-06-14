@@ -14,9 +14,21 @@ class Settings(BaseSettings):
 
     books_storage_path: str = "/data/books"
     covers_storage_path: str = "/data/covers"
+    thumbnails_storage_path: str = "/data/thumbnails"
 
     scan_interval_seconds: int = 300
     max_import_workers: int = 4
+
+    # Metadata enrichment
+    google_books_api_key: str = ""
+    comicvine_api_key: str = ""
+    enrichment_cache_ttl_hours: int = 168
+    enrichment_rate_limit_google: int = 100
+    enrichment_rate_limit_comicvine: int = 200
+
+    # OPDS
+    opds_page_size: int = 50
+    opds_title: str = "InkIsle Library"
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

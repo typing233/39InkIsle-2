@@ -22,3 +22,13 @@ export interface ReaderSettings {
   theme: 'day' | 'night' | 'sepia';
   padding: number;
 }
+
+export interface PdfInfo {
+  page_count: number;
+  metadata: Record<string, string>;
+}
+
+export interface CbzInfo {
+  page_count: number;
+  pages: { name: string; index: number }[];
+}

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -6,6 +6,9 @@ from app.auth.dependencies import get_current_user
 from app.users.models import User
 from app.books.service import get_book
 from app.reader import schemas, service
+from app.reader.pdf_service import get_pdf_info, render_pdf_page, stream_pdf_file
+from app.reader.cbz_service import get_cbz_info, extract_cbz_page
+from app.core.exceptions import NotFoundError
 from uuid import UUID
 
 router = APIRouter(prefix="/reader", tags=["reader"])
@@ -66,3 +69,80 @@ async def get_chapter_content(
     item = spine_items[chapter]
     content = item.get_content()
     return Response(content=content, media_type="text/html")
+
+
+# --- PDF endpoints ---
+
+
+@router.get("/{book_id}/pdf/info")
+async def pdf_info(
+    book_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    book = await get_book(db, book_id)
+    if book.file_format != "pdf":
+        return Response(content="Not a PDF", status_code=400)
+    return get_pdf_info(book.file_path)
+
+
+@router.get("/{book_id}/pdf/page/{page}")
+async def pdf_page(
+    book_id: UUID,
+    page: int,
+    dpi: int = Query(150, ge=72, le=300),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    book = await get_book(db, book_id)
+    if book.file_format != "pdf":
+        return Response(content="Not a PDF", status_code=400)
+    try:
+        png_bytes = render_pdf_page(book.file_path, page, dpi)
+    except ValueError as e:
+        return Response(content=str(e), status_code=404)
+    return Response(content=png_bytes, media_type="image/png")
+
+
+@router.get("/{book_id}/pdf/stream")
+async def pdf_stream(
+    book_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    book = await get_book(db, book_id)
+    if book.file_format != "pdf":
+        return Response(content="Not a PDF", status_code=400)
+    return stream_pdf_file(book.file_path)
+
+
+# --- CBZ endpoints ---
+
+
+@router.get("/{book_id}/cbz/info")
+async def cbz_info(
+    book_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    book = await get_book(db, book_id)
+    if book.file_format != "cbz":
+        return Response(content="Not a CBZ", status_code=400)
+    return get_cbz_info(book.file_path)
+
+
+@router.get("/{book_id}/cbz/page/{page}")
+async def cbz_page(
+    book_id: UUID,
+    page: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    book = await get_book(db, book_id)
+    if book.file_format != "cbz":
+        return Response(content="Not a CBZ", status_code=400)
+    try:
+        data, mime_type = extract_cbz_page(book.file_path, page)
+    except ValueError as e:
+        return Response(content=str(e), status_code=404)
+    return Response(content=data, media_type=mime_type)

@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { booksApi } from '@/api/books';
-import { Book, Tag } from '@/types/book';
+import { Book, Tag, BookSearchParams } from '@/types/book';
 import { BookCard } from '@/components/books/BookCard';
 import { SearchBar } from '@/components/books/SearchBar';
+import { AdvancedSearch } from '@/components/books/AdvancedSearch';
 import { Pagination } from '@/components/common/Pagination';
 
 export default function Library() {
@@ -15,6 +16,7 @@ export default function Library() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [formatFilter, setFormatFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
+  const [advancedFilters, setAdvancedFilters] = useState<Partial<BookSearchParams>>({});
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -35,6 +37,7 @@ export default function Library() {
         sort_order: sortOrder,
         page,
         page_size: pageSize,
+        ...advancedFilters,
       });
       setBooks(data.items);
       setTotal(data.total);
@@ -46,7 +49,7 @@ export default function Library() {
     } finally {
       setLoading(false);
     }
-  }, [query, page, sortBy, sortOrder, formatFilter, tagFilter]);
+  }, [query, page, sortBy, sortOrder, formatFilter, tagFilter, advancedFilters]);
 
   useEffect(() => {
     fetchBooks();
@@ -54,7 +57,7 @@ export default function Library() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sortBy, sortOrder, formatFilter, tagFilter]);
+  }, [query, sortBy, sortOrder, formatFilter, tagFilter, advancedFilters]);
 
   return (
     <div className="space-y-6">
@@ -63,16 +66,6 @@ export default function Library() {
           <SearchBar value={query} onChange={setQuery} />
         </div>
         <div className="flex gap-2 flex-wrap">
-          <select
-            value={tagFilter}
-            onChange={(e) => setTagFilter(e.target.value)}
-            className="px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
-          >
-            <option value="">All Tags</option>
-            {allTags.map((tag) => (
-              <option key={tag.id} value={tag.name}>{tag.name}</option>
-            ))}
-          </select>
           <select
             value={formatFilter}
             onChange={(e) => setFormatFilter(e.target.value)}
@@ -97,9 +90,12 @@ export default function Library() {
             <option value="title:asc">Title A-Z</option>
             <option value="title:desc">Title Z-A</option>
             <option value="author:asc">Author A-Z</option>
+            <option value="avg_rating:desc">Top Rated</option>
           </select>
         </div>
       </div>
+
+      <AdvancedSearch onSearch={setAdvancedFilters} tags={allTags} />
 
       {!loading && total > 0 && (
         <p className="text-sm text-gray-500 dark:text-gray-400">{total} books found</p>

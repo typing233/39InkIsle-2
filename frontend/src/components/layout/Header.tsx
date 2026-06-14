@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, BookOpen, Settings, Shield } from 'lucide-react';
+import { LogOut, BookOpen, Settings, Shield, Heart } from 'lucide-react';
 import { useAuthStore } from '@/store';
 
 export function Header() {
@@ -20,6 +20,9 @@ export function Header() {
         </Link>
 
         <nav className="flex items-center gap-4">
+          <Link to="/collections" className="text-gray-600 dark:text-gray-300 hover:text-gray-900" title="Collections">
+            <Heart size={20} />
+          </Link>
           {user?.role === 'admin' && (
             <Link to="/admin" className="text-gray-600 dark:text-gray-300 hover:text-gray-900">
               <Shield size={20} />
