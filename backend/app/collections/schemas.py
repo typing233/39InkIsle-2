@@ -17,6 +17,7 @@ class CollectionResponse(BaseModel):
     collection_type: str
     is_system: bool
     item_count: int = 0
+    vector_clock: dict[str, int] = {}
     created_at: datetime
 
     class Config:
@@ -38,3 +39,9 @@ class CollectionSyncRequest(BaseModel):
     device_id: str
     vector_clock: dict[str, int]
     book_ids: list[uuid.UUID]
+
+
+class CollectionSyncResponse(BaseModel):
+    merged_book_ids: list[uuid.UUID]
+    vector_clock: dict[str, int]
+    conflicts_resolved: int

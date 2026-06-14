@@ -15,24 +15,53 @@ export default function PdfReader() {
   const navigate = useNavigate();
   const { settings } = useReaderStore();
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const pdfDocRef = useRef<any>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const renderedPages = useRef<Set<number>>(new Set());
 
   const [pdfInfo, setPdfInfo] = useState<PdfInfo | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('paginated');
   const [loading, setLoading] = useState(true);
+  const [pdfLoaded, setPdfLoaded] = useState(false);
 
+  // Load pdf.js and the PDF document
   useEffect(() => {
     if (!bookId) return;
-    readerApi.getPdfInfo(bookId).then(({ data }) => {
-      setPdfInfo(data);
+
+    let cancelled = false;
+
+    const loadPdf = async () => {
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
+      const token = localStorage.getItem('access_token') || '';
+      const loadingTask = pdfjsLib.getDocument({
+        url: readerApi.getPdfStreamUrl(bookId),
+        httpHeaders: { Authorization: `Bearer ${token}` },
+      });
+
+      const doc = await loadingTask.promise;
+      if (cancelled) return;
+
+      pdfDocRef.current = doc;
+      setPdfInfo({ page_count: doc.numPages, metadata: {} });
+      setPdfLoaded(true);
       setLoading(false);
-    });
+    };
+
+    loadPdf().catch(() => setLoading(false));
+
+    // Restore progress
     readerApi.getProgress(bookId).then(({ data }) => {
       if (data.length > 0) {
         const latest = data.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
         if (latest.chapter_index != null) setCurrentPage(latest.chapter_index);
       }
     }).catch(() => {});
+
+    return () => { cancelled = true; };
   }, [bookId]);
 
   const syncProgress = useCallback((page: number) => {
@@ -52,15 +81,97 @@ export default function PdfReader() {
     syncProgress(clamped);
   }, [pdfInfo, syncProgress]);
 
+  // Render a single page to its canvas
+  const renderPageToCanvas = useCallback(async (pageNum: number) => {
+    const doc = pdfDocRef.current;
+    if (!doc) return;
+    const canvas = canvasRefs.current.get(pageNum);
+    if (!canvas) return;
+    if (renderedPages.current.has(pageNum)) return;
+    renderedPages.current.add(pageNum);
+
+    const page = await doc.getPage(pageNum + 1); // pdf.js is 1-indexed
+    const scale = 1.5;
+    const viewport = page.getViewport({ scale });
+
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d')!;
+    await page.render({ canvasContext: ctx, viewport }).promise;
+  }, []);
+
+  // Paginated mode: render current page
+  useEffect(() => {
+    if (viewMode !== 'paginated' || !pdfLoaded) return;
+    renderPageToCanvas(currentPage);
+  }, [currentPage, viewMode, pdfLoaded, renderPageToCanvas]);
+
+  // Stream mode: set up IntersectionObserver for lazy rendering
+  useEffect(() => {
+    if (viewMode !== 'stream' || !pdfLoaded || !pdfInfo) return;
+
+    renderedPages.current.clear();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const pageNum = parseInt(entry.target.getAttribute('data-page') || '0', 10);
+            renderPageToCanvas(pageNum);
+
+            // Update current page based on the topmost visible page
+            if (entry.intersectionRatio > 0.5) {
+              setCurrentPage(pageNum);
+            }
+          }
+        });
+      },
+      { root: containerRef.current, rootMargin: '200px', threshold: [0, 0.5] }
+    );
+    observerRef.current = observer;
+
+    // Observe all canvases
+    canvasRefs.current.forEach((canvas, pageNum) => {
+      observer.observe(canvas);
+    });
+
+    return () => observer.disconnect();
+  }, [viewMode, pdfLoaded, pdfInfo, renderPageToCanvas]);
+
+  // Track scroll progress in stream mode
+  useEffect(() => {
+    if (viewMode !== 'stream' || !pdfInfo) return;
+    const debounced = setTimeout(() => syncProgress(currentPage), 1000);
+    return () => clearTimeout(debounced);
+  }, [currentPage, viewMode, pdfInfo, syncProgress]);
+
+  // When switching modes, scroll to the current page in stream mode
+  useEffect(() => {
+    if (viewMode === 'stream' && pdfLoaded) {
+      const canvas = canvasRefs.current.get(currentPage);
+      if (canvas) {
+        canvas.scrollIntoView({ behavior: 'instant', block: 'start' });
+      }
+    }
+  }, [viewMode, pdfLoaded]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') goToPage(currentPage - 1);
-      if (e.key === 'ArrowRight') goToPage(currentPage + 1);
+      if (viewMode === 'paginated') {
+        if (e.key === 'ArrowLeft') goToPage(currentPage - 1);
+        if (e.key === 'ArrowRight') goToPage(currentPage + 1);
+      }
       if (e.key === 'Escape') navigate('/');
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [currentPage, goToPage, navigate]);
+  }, [currentPage, goToPage, navigate, viewMode]);
+
+  const handleModeSwitch = () => {
+    // Position is preserved via currentPage state - no reset needed
+    setViewMode(viewMode === 'paginated' ? 'stream' : 'paginated');
+    renderedPages.current.clear();
+  };
 
   const bgClass = settings.theme === 'night' ? 'bg-[#1a1a2e]' : settings.theme === 'sepia' ? 'bg-[#f5ead6]' : 'bg-gray-100';
   const textClass = settings.theme === 'night' ? 'text-gray-200' : settings.theme === 'sepia' ? 'text-[#5c4a2a]' : 'text-gray-900';
@@ -82,7 +193,7 @@ export default function PdfReader() {
         </span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setViewMode(viewMode === 'paginated' ? 'stream' : 'paginated')}
+            onClick={handleModeSwitch}
             className="p-2 hover:bg-black/10 rounded"
             title={viewMode === 'paginated' ? 'Switch to scroll mode' : 'Switch to page mode'}
           >
@@ -95,14 +206,12 @@ export default function PdfReader() {
       <div className="flex-1 relative overflow-hidden" ref={containerRef}>
         {viewMode === 'paginated' ? (
           <div className="absolute inset-0 flex items-center justify-center p-4">
-            {bookId && (
-              <img
-                key={currentPage}
-                src={readerApi.getPdfPageUrl(bookId, currentPage)}
-                alt={`Page ${currentPage + 1}`}
-                className="max-w-full max-h-full object-contain shadow-lg"
-              />
-            )}
+            <canvas
+              key={`page-${currentPage}`}
+              ref={(el) => { if (el) canvasRefs.current.set(currentPage, el); }}
+              className="max-w-full max-h-full object-contain shadow-lg"
+              style={{ width: 'auto', height: '100%' }}
+            />
             <button onClick={() => goToPage(currentPage - 1)} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/10 hover:bg-black/20 z-20">
               <ChevronLeft size={24} />
             </button>
@@ -111,14 +220,19 @@ export default function PdfReader() {
             </button>
           </div>
         ) : (
-          <div className="absolute inset-0 overflow-y-auto flex flex-col items-center gap-2 py-4">
-            {bookId && pdfInfo && Array.from({ length: pdfInfo.page_count }, (_, i) => (
-              <img
-                key={i}
-                src={readerApi.getPdfPageUrl(bookId, i, 150)}
-                alt={`Page ${i + 1}`}
+          <div className="absolute inset-0 overflow-y-auto flex flex-col items-center gap-4 py-4">
+            {pdfInfo && Array.from({ length: pdfInfo.page_count }, (_, i) => (
+              <canvas
+                key={`stream-${i}`}
+                data-page={i}
+                ref={(el) => {
+                  if (el) {
+                    canvasRefs.current.set(i, el);
+                    observerRef.current?.observe(el);
+                  }
+                }}
                 className="max-w-full shadow-md"
-                loading="lazy"
+                style={{ minHeight: '400px', width: '90%' }}
               />
             ))}
           </div>

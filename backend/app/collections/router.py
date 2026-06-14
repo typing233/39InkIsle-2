@@ -96,3 +96,27 @@ async def check_favorite(
     await service.ensure_system_collections(db, user.id)
     is_fav = await service.is_book_in_favorites(db, user.id, book_id)
     return {"is_favorite": is_fav}
+
+
+@router.post("/sync", response_model=schemas.CollectionSyncResponse)
+async def sync_collection(
+    data: schemas.CollectionSyncRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cross-device sync endpoint. Client sends its local vector clock and book list.
+    Server resolves conflicts using vector clock comparison:
+    - If server is ahead: returns server state unchanged.
+    - If client is ahead: applies client state.
+    - If concurrent (neither dominates): merges with add-wins semantics (union).
+    """
+    merged_books, merged_vc, conflicts = await service.sync_collection(
+        db, user.id, data.collection_id, data.device_id,
+        data.vector_clock, data.book_ids,
+    )
+    return schemas.CollectionSyncResponse(
+        merged_book_ids=merged_books,
+        vector_clock=merged_vc,
+        conflicts_resolved=conflicts,
+    )

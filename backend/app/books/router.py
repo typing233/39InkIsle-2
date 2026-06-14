@@ -15,9 +15,17 @@ router = APIRouter(prefix="/books", tags=["books"])
 @router.get("", response_model=schemas.PaginatedBooksResponse)
 async def list_books(
     q: str | None = None,
+    q_fuzzy: bool = False,
     author: str | None = None,
     tag: str | None = None,
     format: str | None = None,
+    series: str | None = None,
+    language: str | None = None,
+    rating_min: float | None = None,
+    rating_max: float | None = None,
+    has_cover: bool | None = None,
+    publish_date_from: str | None = None,
+    publish_date_to: str | None = None,
     sort_by: str = "created_at",
     sort_order: str = "desc",
     page: int = Query(1, ge=1),
@@ -25,8 +33,26 @@ async def list_books(
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from datetime import date as date_type
+    date_from = None
+    date_to = None
+    if publish_date_from:
+        try:
+            date_from = date_type.fromisoformat(publish_date_from)
+        except ValueError:
+            pass
+    if publish_date_to:
+        try:
+            date_to = date_type.fromisoformat(publish_date_to)
+        except ValueError:
+            pass
+
     params = schemas.BookSearchParams(
-        q=q, author=author, tag=tag, format=format,
+        q=q, q_fuzzy=q_fuzzy, author=author, tag=tag, format=format,
+        series=series, language=language,
+        rating_min=rating_min, rating_max=rating_max,
+        has_cover=has_cover,
+        publish_date_from=date_from, publish_date_to=date_to,
         sort_by=sort_by, sort_order=sort_order,
         page=page, page_size=page_size,
     )

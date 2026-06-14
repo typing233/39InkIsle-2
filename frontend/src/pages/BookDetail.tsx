@@ -5,7 +5,8 @@ import { reviewsApi, ReviewData } from '@/api/reviews';
 import { useAuthStore } from '@/store';
 import { Book } from '@/types/book';
 import { StarRating } from '@/components/books/StarRating';
-import { ArrowLeft, BookOpen, Star } from 'lucide-react';
+import { EnrichmentPanel } from '@/components/books/EnrichmentPanel';
+import { BookOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function BookDetail() {
@@ -78,6 +79,11 @@ export default function BookDetail() {
     if (book.file_format === 'epub') navigate(`/read/${book.id}`);
     else if (book.file_format === 'pdf') navigate(`/read/pdf/${book.id}`);
     else if (book.file_format === 'cbz') navigate(`/read/cbz/${book.id}`);
+  };
+
+  const reloadBook = () => {
+    if (!bookId) return;
+    booksApi.getById(bookId).then(({ data }) => setBook(data));
   };
 
   if (!book) return <div className="p-8 text-center text-gray-500">Loading...</div>;
@@ -170,6 +176,10 @@ export default function BookDetail() {
           </div>
         )}
       </div>
+      {/* Admin: Metadata Enrichment & Calibration */}
+      {user?.role === 'admin' && (
+        <EnrichmentPanel bookId={book.id} onMetadataUpdated={reloadBook} />
+      )}
     </div>
   );
 }

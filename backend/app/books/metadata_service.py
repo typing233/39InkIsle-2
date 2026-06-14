@@ -55,8 +55,12 @@ async def calibrate_metadata(
     if not meta:
         raise NotFoundError("Metadata not found for this book")
 
+    changed_fields = {}
     for field, value in updates.items():
         if value is not None and hasattr(meta, field):
+            old_value = getattr(meta, field)
+            if old_value != value:
+                changed_fields[field] = {"old": old_value, "new": value}
             setattr(meta, field, value)
 
     meta.last_calibrated_by = operator_id
@@ -81,5 +85,13 @@ async def calibrate_metadata(
         if updates.get("calibrated_isbn"):
             book.isbn = updates["calibrated_isbn"]
         await db.flush()
+
+    # Audit log for manual edits
+    if changed_fields:
+        await log_action(
+            db, operator_id, "metadata.calibrate",
+            resource_type="book", resource_id=book_id,
+            details={"changes": changed_fields},
+        )
 
     return meta
