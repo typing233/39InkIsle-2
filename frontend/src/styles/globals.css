@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --reader-bg: #ffffff;
+  --reader-text: #1a1a1a;
+  --reader-font-size: 18px;
+  --reader-line-height: 1.8;
+  --reader-font-family: 'Georgia', serif;
+  --reader-padding: 2rem;
+}
+
+.theme-night {
+  --reader-bg: #1a1a2e;
+  --reader-text: #e0e0e0;
+}
+
+.theme-sepia {
+  --reader-bg: #f5ead6;
+  --reader-text: #5c4a2a;
+}
+
+.reader-content {
+  background: var(--reader-bg);
+  color: var(--reader-text);
+  font-size: var(--reader-font-size);
+  line-height: var(--reader-line-height);
+  font-family: var(--reader-font-family);
+  padding: var(--reader-padding);
+}
