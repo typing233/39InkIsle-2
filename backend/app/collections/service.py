@@ -275,4 +275,12 @@ async def sync_collection(
     col.vector_clock = merged_vc
     await db.flush()
 
-    return merged_books, merged_vc, conflicts_resolved
+    # Return stable ordering by position
+    final_items_q = (
+        select(CollectionItem.book_id)
+        .where(CollectionItem.collection_id == collection_id)
+        .order_by(CollectionItem.position)
+    )
+    stable_book_ids = list((await db.execute(final_items_q)).scalars().all())
+
+    return stable_book_ids, merged_vc, conflicts_resolved

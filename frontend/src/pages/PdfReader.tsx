@@ -14,17 +14,21 @@ export default function PdfReader() {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
   const { settings } = useReaderStore();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const streamContainerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<any>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const renderedPages = useRef<Set<number>>(new Set());
+  const pageCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
 
   const [pdfInfo, setPdfInfo] = useState<PdfInfo | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>('paginated');
   const [loading, setLoading] = useState(true);
   const [pdfLoaded, setPdfLoaded] = useState(false);
+  const currentPageRef = useRef(0);
+
+  // Keep ref in sync for use in observer callbacks
+  useEffect(() => { currentPageRef.current = currentPage; }, [currentPage]);
 
   // Load pdf.js and the PDF document
   useEffect(() => {
@@ -53,11 +57,13 @@ export default function PdfReader() {
 
     loadPdf().catch(() => setLoading(false));
 
-    // Restore progress
     readerApi.getProgress(bookId).then(({ data }) => {
       if (data.length > 0) {
         const latest = data.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
-        if (latest.chapter_index != null) setCurrentPage(latest.chapter_index);
+        if (latest.chapter_index != null) {
+          setCurrentPage(latest.chapter_index);
+          currentPageRef.current = latest.chapter_index;
+        }
       }
     }).catch(() => {});
 
@@ -81,16 +87,12 @@ export default function PdfReader() {
     syncProgress(clamped);
   }, [pdfInfo, syncProgress]);
 
-  // Render a single page to its canvas
-  const renderPageToCanvas = useCallback(async (pageNum: number) => {
+  // Render a page to a given canvas element
+  const renderPage = useCallback(async (pageNum: number, canvas: HTMLCanvasElement) => {
     const doc = pdfDocRef.current;
     if (!doc) return;
-    const canvas = canvasRefs.current.get(pageNum);
-    if (!canvas) return;
-    if (renderedPages.current.has(pageNum)) return;
-    renderedPages.current.add(pageNum);
 
-    const page = await doc.getPage(pageNum + 1); // pdf.js is 1-indexed
+    const page = await doc.getPage(pageNum + 1);
     const scale = 1.5;
     const viewport = page.getViewport({ scale });
 
@@ -100,11 +102,15 @@ export default function PdfReader() {
     await page.render({ canvasContext: ctx, viewport }).promise;
   }, []);
 
-  // Paginated mode: render current page
+  // Paginated mode: render only the current page
+  const paginatedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   useEffect(() => {
     if (viewMode !== 'paginated' || !pdfLoaded) return;
-    renderPageToCanvas(currentPage);
-  }, [currentPage, viewMode, pdfLoaded, renderPageToCanvas]);
+    const canvas = paginatedCanvasRef.current;
+    if (!canvas) return;
+    renderPage(currentPage, canvas);
+  }, [currentPage, viewMode, pdfLoaded, renderPage]);
 
   // Stream mode: set up IntersectionObserver for lazy rendering
   useEffect(() => {
@@ -114,46 +120,54 @@ export default function PdfReader() {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
+        for (const entry of entries) {
+          const pageNum = parseInt(entry.target.getAttribute('data-page') || '0', 10);
           if (entry.isIntersecting) {
-            const pageNum = parseInt(entry.target.getAttribute('data-page') || '0', 10);
-            renderPageToCanvas(pageNum);
-
-            // Update current page based on the topmost visible page
-            if (entry.intersectionRatio > 0.5) {
+            const canvas = entry.target as HTMLCanvasElement;
+            if (!renderedPages.current.has(pageNum)) {
+              renderedPages.current.add(pageNum);
+              renderPage(pageNum, canvas);
+            }
+            if (entry.intersectionRatio >= 0.5) {
               setCurrentPage(pageNum);
             }
           }
-        });
+        }
       },
-      { root: containerRef.current, rootMargin: '200px', threshold: [0, 0.5] }
+      { root: streamContainerRef.current, rootMargin: '300px', threshold: [0, 0.5] }
     );
     observerRef.current = observer;
 
-    // Observe all canvases
-    canvasRefs.current.forEach((canvas, pageNum) => {
+    pageCanvasRefs.current.forEach((canvas) => {
       observer.observe(canvas);
     });
 
     return () => observer.disconnect();
-  }, [viewMode, pdfLoaded, pdfInfo, renderPageToCanvas]);
+  }, [viewMode, pdfLoaded, pdfInfo, renderPage]);
 
-  // Track scroll progress in stream mode
+  // Sync progress when page changes in stream mode (debounced)
   useEffect(() => {
     if (viewMode !== 'stream' || !pdfInfo) return;
-    const debounced = setTimeout(() => syncProgress(currentPage), 1000);
-    return () => clearTimeout(debounced);
+    const timer = setTimeout(() => syncProgress(currentPage), 1000);
+    return () => clearTimeout(timer);
   }, [currentPage, viewMode, pdfInfo, syncProgress]);
 
-  // When switching modes, scroll to the current page in stream mode
+  // Scroll to current page when switching to stream mode
+  const scrollToCurrentInStream = useCallback(() => {
+    const canvas = pageCanvasRefs.current.get(currentPageRef.current);
+    if (canvas) {
+      canvas.scrollIntoView({ behavior: 'instant', block: 'start' });
+    }
+  }, []);
+
   useEffect(() => {
     if (viewMode === 'stream' && pdfLoaded) {
-      const canvas = canvasRefs.current.get(currentPage);
-      if (canvas) {
-        canvas.scrollIntoView({ behavior: 'instant', block: 'start' });
-      }
+      // Slight delay so DOM has rendered all canvas elements
+      requestAnimationFrame(() => {
+        scrollToCurrentInStream();
+      });
     }
-  }, [viewMode, pdfLoaded]);
+  }, [viewMode, pdfLoaded, scrollToCurrentInStream]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -168,9 +182,8 @@ export default function PdfReader() {
   }, [currentPage, goToPage, navigate, viewMode]);
 
   const handleModeSwitch = () => {
-    // Position is preserved via currentPage state - no reset needed
-    setViewMode(viewMode === 'paginated' ? 'stream' : 'paginated');
     renderedPages.current.clear();
+    setViewMode(viewMode === 'paginated' ? 'stream' : 'paginated');
   };
 
   const bgClass = settings.theme === 'night' ? 'bg-[#1a1a2e]' : settings.theme === 'sepia' ? 'bg-[#f5ead6]' : 'bg-gray-100';
@@ -203,36 +216,46 @@ export default function PdfReader() {
       </div>
 
       {/* Reader area */}
-      <div className="flex-1 relative overflow-hidden" ref={containerRef}>
+      <div className="flex-1 relative overflow-hidden">
         {viewMode === 'paginated' ? (
           <div className="absolute inset-0 flex items-center justify-center p-4">
             <canvas
-              key={`page-${currentPage}`}
-              ref={(el) => { if (el) canvasRefs.current.set(currentPage, el); }}
+              ref={paginatedCanvasRef}
               className="max-w-full max-h-full object-contain shadow-lg"
               style={{ width: 'auto', height: '100%' }}
             />
-            <button onClick={() => goToPage(currentPage - 1)} className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/10 hover:bg-black/20 z-20">
+            <button
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage === 0}
+              className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/10 hover:bg-black/20 disabled:opacity-30 z-20"
+            >
               <ChevronLeft size={24} />
             </button>
-            <button onClick={() => goToPage(currentPage + 1)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/10 hover:bg-black/20 z-20">
+            <button
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={!pdfInfo || currentPage >= pdfInfo.page_count - 1}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/10 hover:bg-black/20 disabled:opacity-30 z-20"
+            >
               <ChevronRight size={24} />
             </button>
           </div>
         ) : (
-          <div className="absolute inset-0 overflow-y-auto flex flex-col items-center gap-4 py-4">
+          <div
+            ref={streamContainerRef}
+            className="absolute inset-0 overflow-y-auto flex flex-col items-center gap-4 py-4"
+          >
             {pdfInfo && Array.from({ length: pdfInfo.page_count }, (_, i) => (
               <canvas
-                key={`stream-${i}`}
+                key={`stream-page-${i}`}
                 data-page={i}
                 ref={(el) => {
                   if (el) {
-                    canvasRefs.current.set(i, el);
+                    pageCanvasRefs.current.set(i, el);
                     observerRef.current?.observe(el);
                   }
                 }}
-                className="max-w-full shadow-md"
-                style={{ minHeight: '400px', width: '90%' }}
+                className="max-w-full shadow-md bg-white"
+                style={{ minHeight: '600px', width: '90%' }}
               />
             ))}
           </div>

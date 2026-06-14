@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { enrichmentApi, EnrichmentCandidate } from '@/api/enrichment';
-import { AlertTriangle, Check, RefreshCw, Edit3, X } from 'lucide-react';
+import { AlertTriangle, Check, RefreshCw, Edit3, X, ArrowRight, Shield } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface MetadataState {
@@ -24,6 +24,14 @@ interface MetadataState {
 interface Props {
   bookId: string;
   onMetadataUpdated?: () => void;
+}
+
+interface FieldDiff {
+  field: string;
+  label: string;
+  currentValue: string | null;
+  incomingValue: string | null;
+  willApply: boolean;
 }
 
 export function EnrichmentPanel({ bookId, onMetadataUpdated }: Props) {
@@ -78,24 +86,34 @@ export function EnrichmentPanel({ bookId, onMetadataUpdated }: Props) {
     setSelectedCandidate({ provider, candidate });
   };
 
-  const getConflicts = (candidate: EnrichmentCandidate): string[] => {
-    if (!metadata) return [];
-    const conflicts: string[] = [];
-    if (metadata.source_title && candidate.title && metadata.source_title !== candidate.title) {
-      conflicts.push('title');
-    }
-    if (metadata.source_author && candidate.authors?.length) {
-      const incoming = candidate.authors.join(', ');
-      if (metadata.source_author !== incoming) conflicts.push('author');
-    }
-    if (metadata.source_publisher && candidate.publisher && metadata.source_publisher !== candidate.publisher) {
-      conflicts.push('publisher');
-    }
-    if (metadata.source_isbn && (candidate.isbn_13 || candidate.isbn_10)) {
-      const incoming = candidate.isbn_13 || candidate.isbn_10;
-      if (metadata.source_isbn !== incoming) conflicts.push('isbn');
-    }
-    return conflicts;
+  const buildFieldDiffs = (candidate: EnrichmentCandidate): FieldDiff[] => {
+    const diffs: FieldDiff[] = [];
+    const m = metadata;
+
+    const addDiff = (field: string, label: string, current: string | null | undefined, incoming: string | null | undefined) => {
+      if (!incoming) return;
+      diffs.push({
+        field,
+        label,
+        currentValue: current || null,
+        incomingValue: incoming,
+        willApply: !current,
+      });
+    };
+
+    addDiff('title', 'Title', m?.source_title, candidate.title);
+    addDiff('author', 'Author', m?.source_author, candidate.authors?.join(', '));
+    addDiff('description', 'Description', m?.source_description, candidate.description?.slice(0, 150));
+    addDiff('publisher', 'Publisher', m?.source_publisher, candidate.publisher);
+    addDiff('language', 'Language', m?.source_language, candidate.language);
+    addDiff('isbn', 'ISBN', m?.source_isbn, candidate.isbn_13 || candidate.isbn_10);
+    addDiff('publish_date', 'Publish Date', m?.source_publish_date, candidate.published_date);
+
+    return diffs;
+  };
+
+  const getConflictCount = (candidate: EnrichmentCandidate): number => {
+    return buildFieldDiffs(candidate).filter(d => !d.willApply && d.incomingValue).length;
   };
 
   const applyCandidate = async () => {
@@ -103,7 +121,7 @@ export function EnrichmentPanel({ bookId, onMetadataUpdated }: Props) {
     setApplying(true);
     try {
       await enrichmentApi.apply(bookId, selectedCandidate.provider, selectedCandidate.candidate);
-      toast.success('Enrichment applied');
+      toast.success('Enrichment applied successfully');
       setSelectedCandidate(null);
       setCandidates(null);
       await loadMetadata();
@@ -125,7 +143,7 @@ export function EnrichmentPanel({ bookId, onMetadataUpdated }: Props) {
     }
     try {
       await enrichmentApi.calibrate(bookId, updates);
-      toast.success('Metadata calibrated');
+      toast.success('Metadata calibrated (audited)');
       setEditMode(false);
       await loadMetadata();
       onMetadataUpdated?.();
@@ -162,6 +180,8 @@ export function EnrichmentPanel({ bookId, onMetadataUpdated }: Props) {
           {metadata.source_title && <p><span className="font-medium">Title:</span> {metadata.source_title}</p>}
           {metadata.source_author && <p><span className="font-medium">Author:</span> {metadata.source_author}</p>}
           {metadata.source_publisher && <p><span className="font-medium">Publisher:</span> {metadata.source_publisher}</p>}
+          {metadata.source_language && <p><span className="font-medium">Language:</span> {metadata.source_language}</p>}
+          {metadata.source_isbn && <p><span className="font-medium">ISBN:</span> {metadata.source_isbn}</p>}
           {metadata.last_calibrated_at && (
             <p><span className="font-medium">Last calibrated:</span> {new Date(metadata.last_calibrated_at).toLocaleString()}</p>
           )}
@@ -172,10 +192,10 @@ export function EnrichmentPanel({ bookId, onMetadataUpdated }: Props) {
       {editMode && (
         <div className="border rounded-lg p-4 space-y-3 bg-white dark:bg-gray-900">
           <h3 className="font-medium text-sm">Calibrate Metadata (Manual Edit)</h3>
-          <p className="text-xs text-gray-500">Changes are audited. Only fill fields you want to override.</p>
+          <p className="text-xs text-gray-500">Changes are audited with field-level tracking.</p>
           {Object.entries(editForm).map(([key, val]) => (
             <div key={key} className="flex items-center gap-2">
-              <label className="w-28 text-xs font-medium text-gray-600 shrink-0">
+              <label className="w-28 text-xs font-medium text-gray-600 shrink-0 capitalize">
                 {key.replace('calibrated_', '').replace('_', ' ')}
               </label>
               {key === 'calibrated_description' ? (
@@ -208,21 +228,19 @@ export function EnrichmentPanel({ bookId, onMetadataUpdated }: Props) {
           {candidates.google_books.length > 0 && (
             <CandidateList
               title="Google Books"
-              provider="google_books"
               items={candidates.google_books}
               selected={selectedCandidate?.provider === 'google_books' ? selectedCandidate.candidate : null}
               onSelect={(c) => handleSelectCandidate('google_books', c)}
-              getConflicts={getConflicts}
+              getConflictCount={getConflictCount}
             />
           )}
           {candidates.comicvine.length > 0 && (
             <CandidateList
               title="ComicVine"
-              provider="comicvine"
               items={candidates.comicvine}
               selected={selectedCandidate?.provider === 'comicvine' ? selectedCandidate.candidate : null}
               onSelect={(c) => handleSelectCandidate('comicvine', c)}
-              getConflicts={getConflicts}
+              getConflictCount={getConflictCount}
             />
           )}
           {candidates.google_books.length === 0 && candidates.comicvine.length === 0 && (
@@ -231,12 +249,12 @@ export function EnrichmentPanel({ bookId, onMetadataUpdated }: Props) {
         </div>
       )}
 
-      {/* Confirmation dialog */}
+      {/* Confirmation dialog with field-level diff */}
       {selectedCandidate && (
-        <ConfirmDialog
+        <FieldDiffConfirm
           provider={selectedCandidate.provider}
           candidate={selectedCandidate.candidate}
-          conflicts={getConflicts(selectedCandidate.candidate)}
+          diffs={buildFieldDiffs(selectedCandidate.candidate)}
           applying={applying}
           onConfirm={applyCandidate}
           onCancel={() => setSelectedCandidate(null)}
@@ -251,21 +269,20 @@ function CandidateList({
   items,
   selected,
   onSelect,
-  getConflicts,
+  getConflictCount,
 }: {
   title: string;
-  provider: string;
   items: EnrichmentCandidate[];
   selected: EnrichmentCandidate | null;
   onSelect: (c: EnrichmentCandidate) => void;
-  getConflicts: (c: EnrichmentCandidate) => string[];
+  getConflictCount: (c: EnrichmentCandidate) => number;
 }) {
   return (
     <div>
       <h3 className="text-sm font-medium mb-2">{title} Results</h3>
       <div className="space-y-2 max-h-64 overflow-y-auto">
         {items.map((item, idx) => {
-          const conflicts = getConflicts(item);
+          const conflicts = getConflictCount(item);
           const isSelected = selected === item;
           return (
             <div
@@ -281,9 +298,9 @@ function CandidateList({
                   {item.authors && <p className="text-xs text-gray-500">{item.authors.join(', ')}</p>}
                   {item.publisher && <p className="text-xs text-gray-400">{item.publisher}</p>}
                 </div>
-                {conflicts.length > 0 && (
+                {conflicts > 0 && (
                   <span className="flex items-center gap-1 text-xs text-amber-600 shrink-0">
-                    <AlertTriangle size={12} /> {conflicts.length} conflict{conflicts.length > 1 ? 's' : ''}
+                    <AlertTriangle size={12} /> {conflicts} skipped
                   </span>
                 )}
                 {isSelected && <Check size={16} className="text-blue-600 shrink-0" />}
@@ -296,56 +313,87 @@ function CandidateList({
   );
 }
 
-function ConfirmDialog({
+function FieldDiffConfirm({
   provider,
   candidate,
-  conflicts,
+  diffs,
   applying,
   onConfirm,
   onCancel,
 }: {
   provider: string;
   candidate: EnrichmentCandidate;
-  conflicts: string[];
+  diffs: FieldDiff[];
   applying: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const willApply = diffs.filter(d => d.willApply);
+  const willSkip = diffs.filter(d => !d.willApply);
+
   return (
-    <div className="border-2 border-blue-300 rounded-lg p-4 bg-blue-50 dark:bg-blue-900/10 space-y-3">
+    <div className="border-2 border-blue-300 rounded-lg p-4 bg-blue-50 dark:bg-blue-900/10 space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-medium text-sm">Confirm Enrichment from {provider === 'google_books' ? 'Google Books' : 'ComicVine'}</h3>
+        <h3 className="font-medium text-sm">
+          Confirm Enrichment — {provider === 'google_books' ? 'Google Books' : 'ComicVine'}
+        </h3>
         <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
       </div>
 
-      <div className="text-xs space-y-1">
-        {candidate.title && <p><span className="font-medium">Title:</span> {candidate.title}</p>}
-        {candidate.authors && <p><span className="font-medium">Authors:</span> {candidate.authors.join(', ')}</p>}
-        {candidate.description && <p><span className="font-medium">Description:</span> {candidate.description.slice(0, 200)}...</p>}
-        {candidate.publisher && <p><span className="font-medium">Publisher:</span> {candidate.publisher}</p>}
-        {candidate.language && <p><span className="font-medium">Language:</span> {candidate.language}</p>}
-        {(candidate.isbn_13 || candidate.isbn_10) && <p><span className="font-medium">ISBN:</span> {candidate.isbn_13 || candidate.isbn_10}</p>}
-        {candidate.published_date && <p><span className="font-medium">Published:</span> {candidate.published_date}</p>}
-      </div>
-
-      {conflicts.length > 0 && (
-        <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-400">
-          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Conflicts detected</p>
-            <p>Fields with existing data that won't be overwritten: {conflicts.join(', ')}</p>
-            <p className="mt-1">Only empty source fields will be populated. Use Manual Edit to override.</p>
+      {/* Fields that WILL be applied */}
+      {willApply.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-green-700 flex items-center gap-1">
+            <Check size={12} /> Will be applied ({willApply.length} fields)
+          </p>
+          <div className="bg-green-50 dark:bg-green-900/20 rounded p-2 space-y-1.5">
+            {willApply.map((d) => (
+              <div key={d.field} className="flex items-center gap-2 text-xs">
+                <span className="w-20 font-medium text-gray-600 shrink-0">{d.label}</span>
+                <span className="text-gray-400 italic">empty</span>
+                <ArrowRight size={10} className="text-green-600 shrink-0" />
+                <span className="text-green-800 dark:text-green-300 truncate">{d.incomingValue}</span>
+              </div>
+            ))}
           </div>
+        </div>
+      )}
+
+      {/* Fields that will be SKIPPED (conflicts) */}
+      {willSkip.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-amber-700 flex items-center gap-1">
+            <Shield size={12} /> Kept unchanged ({willSkip.length} fields — existing data preserved)
+          </p>
+          <div className="bg-amber-50 dark:bg-amber-900/20 rounded p-2 space-y-1.5">
+            {willSkip.map((d) => (
+              <div key={d.field} className="flex items-center gap-2 text-xs">
+                <span className="w-20 font-medium text-gray-600 shrink-0">{d.label}</span>
+                <span className="text-amber-800 dark:text-amber-300 truncate flex-1">
+                  "{d.currentValue}" <span className="text-gray-400">(kept)</span>
+                </span>
+                <span className="text-gray-400 line-through truncate max-w-[120px]">{d.incomingValue}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 pl-1">Use Manual Edit to override existing values.</p>
+        </div>
+      )}
+
+      {willApply.length === 0 && (
+        <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <p>All source fields already have data. Nothing new will be applied. Use Manual Edit to override.</p>
         </div>
       )}
 
       <div className="flex gap-2">
         <button
           onClick={onConfirm}
-          disabled={applying}
+          disabled={applying || willApply.length === 0}
           className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
         >
-          {applying ? 'Applying...' : 'Apply Enrichment'}
+          {applying ? 'Applying...' : `Apply ${willApply.length} Field${willApply.length !== 1 ? 's' : ''}`}
         </button>
         <button onClick={onCancel} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
           Cancel

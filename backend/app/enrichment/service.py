@@ -82,6 +82,24 @@ async def apply_enrichment(
     meta.metadata_source = provider
 
     await db.flush()
+
+    # Update Book display fields from source data (only if no calibrated override)
+    book = (await db.execute(select(Book).where(Book.id == book_id))).scalar_one_or_none()
+    if book:
+        if meta.source_title and not meta.calibrated_title and not book.title:
+            book.title = meta.source_title
+        if meta.source_author and not meta.calibrated_author and not book.author:
+            book.author = meta.source_author
+        if meta.source_description and not meta.calibrated_description and not book.description:
+            book.description = meta.source_description
+        if meta.source_publisher and not meta.calibrated_publisher and not book.publisher:
+            book.publisher = meta.source_publisher
+        if meta.source_language and not meta.calibrated_language and not book.language:
+            book.language = meta.source_language
+        if meta.source_isbn and not meta.calibrated_isbn and not book.isbn:
+            book.isbn = meta.source_isbn
+        await db.flush()
+
     await log_action(db, operator_id, "metadata.enrich", "book", book_id, {
         "provider": provider, "external_id": candidate_data.get("external_id")
     })

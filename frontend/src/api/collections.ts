@@ -1,4 +1,5 @@
 import client from './client';
+import { getDeviceId } from '@/lib/progressSync';
 
 export interface CollectionData {
   id: string;
@@ -6,7 +7,21 @@ export interface CollectionData {
   collection_type: string;
   is_system: boolean;
   item_count: number;
+  vector_clock: Record<string, number>;
   created_at: string;
+}
+
+export interface CollectionBookItem {
+  id: string;
+  book_id: string;
+  position: number;
+  added_at: string;
+}
+
+export interface SyncResponse {
+  merged_book_ids: string[];
+  vector_clock: Record<string, number>;
+  conflicts_resolved: number;
 }
 
 export const collectionsApi = {
@@ -18,8 +33,10 @@ export const collectionsApi = {
 
   delete: (id: string) => client.delete(`/collections/${id}`),
 
-  getBooks: (id: string, page = 1) =>
-    client.get(`/collections/${id}/books?page=${page}`),
+  getBooks: (id: string, page = 1, pageSize = 100) =>
+    client.get<{ items: CollectionBookItem[]; total: number; page: number; page_size: number }>(
+      `/collections/${id}/books?page=${page}&page_size=${pageSize}`
+    ),
 
   addBook: (collectionId: string, bookId: string, deviceId?: string) =>
     client.post(`/collections/${collectionId}/books/${bookId}${deviceId ? `?device_id=${deviceId}` : ''}`),
@@ -29,4 +46,12 @@ export const collectionsApi = {
 
   checkFavorite: (bookId: string) =>
     client.get<{ is_favorite: boolean }>(`/collections/favorites/check/${bookId}`),
+
+  sync: (collectionId: string, bookIds: string[], vectorClock: Record<string, number>) =>
+    client.post<SyncResponse>('/collections/sync', {
+      collection_id: collectionId,
+      device_id: getDeviceId(),
+      vector_clock: vectorClock,
+      book_ids: bookIds,
+    }),
 };
