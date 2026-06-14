@@ -48,9 +48,10 @@ async def delete_folder(
 @router.post("/folders/{folder_id}/scan", status_code=202)
 async def trigger_scan(
     folder_id: UUID,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
-    await service.trigger_scan(folder_id)
+    await service.trigger_scan(db, folder_id, operator_id=admin.id)
     return {"message": "Scan queued"}
 
 
@@ -69,9 +70,10 @@ async def list_tasks(
 @router.post("/tasks/{task_id}/retry", status_code=202)
 async def retry_task(
     task_id: UUID,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
-    await service.retry_task(task_id)
+    await service.retry_task(db, task_id, operator_id=admin.id)
     return {"message": "Task re-queued"}
 
 

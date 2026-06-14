@@ -43,16 +43,16 @@ async def list_users(
 async def update_role(
     user_id: UUID,
     data: schemas.RoleUpdate,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.update_user_role(db, user_id, data.role)
+    return await service.update_user_role(db, user_id, data.role, operator_id=admin.id)
 
 
 @router.delete("/{user_id}", status_code=204)
 async def deactivate_user(
     user_id: UUID,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    await service.deactivate_user(db, user_id)
+    await service.deactivate_user(db, user_id, operator_id=admin.id)

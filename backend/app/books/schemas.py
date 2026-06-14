@@ -43,3 +43,11 @@ class BookSearchParams(BaseModel):
     sort_order: str = "desc"
     page: int = 1
     page_size: int = 20
+
+
+class PaginatedBooksResponse(BaseModel):
+    items: list[BookResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int

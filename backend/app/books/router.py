@@ -12,7 +12,7 @@ import os
 router = APIRouter(prefix="/books", tags=["books"])
 
 
-@router.get("", response_model=list[schemas.BookResponse])
+@router.get("", response_model=schemas.PaginatedBooksResponse)
 async def list_books(
     q: str | None = None,
     author: str | None = None,
@@ -31,7 +31,11 @@ async def list_books(
         page=page, page_size=page_size,
     )
     books, total = await service.search_books(db, params)
-    return books
+    total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0
+    return schemas.PaginatedBooksResponse(
+        items=books, total=total, page=page,
+        page_size=page_size, total_pages=total_pages,
+    )
 
 
 @router.get("/{book_id}", response_model=schemas.BookResponse)
@@ -72,10 +76,10 @@ async def download_file(
 @router.delete("/{book_id}", status_code=204)
 async def delete_book(
     book_id: UUID,
-    _admin: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    await service.delete_book(db, book_id)
+    await service.delete_book(db, book_id, operator_id=admin.id)
 
 
 @router.get("/tags/all", response_model=list[schemas.TagResponse])
@@ -113,3 +117,31 @@ async def remove_tag(
     db: AsyncSession = Depends(get_db),
 ):
     await service.remove_tag_from_book(db, book_id, tag_id)
+
+
+# --- Metadata endpoints ---
+from app.books import metadata_schemas, metadata_service
+
+
+@router.get("/{book_id}/metadata", response_model=metadata_schemas.MetadataResponse)
+async def get_metadata(
+    book_id: UUID,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    meta = await metadata_service.get_metadata(db, book_id)
+    if not meta:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Metadata not found")
+    return meta
+
+
+@router.patch("/{book_id}/metadata", response_model=metadata_schemas.MetadataResponse)
+async def calibrate_metadata(
+    book_id: UUID,
+    data: metadata_schemas.MetadataCalibrate,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    updates = data.model_dump(exclude_none=True)
+    return await metadata_service.calibrate_metadata(db, book_id, updates, operator_id=admin.id)

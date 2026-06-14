@@ -1,9 +1,17 @@
 import client from './client';
 import { Book, BookSearchParams } from '@/types/book';
 
+export interface PaginatedBooksResponse {
+  items: Book[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export const booksApi = {
   search: (params: BookSearchParams) =>
-    client.get<Book[]>('/books', { params }),
+    client.get<PaginatedBooksResponse>('/books', { params }),
 
   getById: (id: string) => client.get<Book>(`/books/${id}`),
 

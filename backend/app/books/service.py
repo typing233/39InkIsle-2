@@ -3,6 +3,7 @@ from sqlalchemy import select, func, desc, asc, text
 from app.books.models import Book, Tag, BookTag
 from app.books.schemas import BookSearchParams
 from app.core.exceptions import NotFoundError
+from app.admin.service import log_action
 import uuid
 
 
@@ -10,7 +11,7 @@ async def search_books(
     db: AsyncSession, params: BookSearchParams
 ) -> tuple[list[Book], int]:
     query = select(Book).where(Book.is_available == True)
-    count_query = select(func.count(Book.id)).where(Book.is_available == True)
+    count_query = select(func.count(func.distinct(Book.id))).select_from(Book).where(Book.is_available == True)
 
     if params.q:
         ts_query = func.plainto_tsquery("english", params.q)
@@ -26,12 +27,12 @@ async def search_books(
         count_query = count_query.where(Book.file_format == params.format)
 
     if params.tag:
-        query = query.join(BookTag).join(Tag).where(Tag.name == params.tag)
-        count_query = count_query.join(BookTag).join(Tag).where(Tag.name == params.tag)
+        query = query.join(BookTag, Book.id == BookTag.book_id).join(Tag, BookTag.tag_id == Tag.id).where(Tag.name == params.tag)
+        count_query = count_query.join(BookTag, Book.id == BookTag.book_id).join(Tag, BookTag.tag_id == Tag.id).where(Tag.name == params.tag)
 
     sort_column = getattr(Book, params.sort_by, Book.created_at)
     order_fn = desc if params.sort_order == "desc" else asc
-    query = query.order_by(order_fn(sort_column))
+    query = query.distinct().order_by(order_fn(sort_column))
 
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()
@@ -52,8 +53,13 @@ async def get_book(db: AsyncSession, book_id: uuid.UUID) -> Book:
     return book
 
 
-async def delete_book(db: AsyncSession, book_id: uuid.UUID) -> None:
+async def delete_book(db: AsyncSession, book_id: uuid.UUID, operator_id: uuid.UUID) -> None:
     book = await get_book(db, book_id)
+    await log_action(
+        db, operator_id, "book.delete",
+        resource_type="book", resource_id=book_id,
+        details={"title": book.title, "author": book.author},
+    )
     await db.delete(book)
 
 

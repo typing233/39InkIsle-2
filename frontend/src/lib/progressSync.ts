@@ -1,4 +1,5 @@
 import { readerApi } from '@/api/reader';
+import { ReadingProgress } from '@/types/reader';
 
 interface QueuedProgress {
   bookId: string;
@@ -45,18 +46,33 @@ export function getDeviceId(): string {
   return id;
 }
 
+/**
+ * Resolve cross-device reading progress conflicts.
+ * Strategy: last-write-wins by timestamp, with vector clock total as tiebreaker.
+ * Returns the CFI string of the winning progress entry.
+ */
 export function resolveProgressConflict(
-  progressList: Array<{ updated_at: string; vector_clock: Record<string, number>; cfi: string | null }>
+  progressList: ReadingProgress[]
 ): string | null {
   if (progressList.length === 0) return null;
 
-  const sorted = [...progressList].sort((a, b) => {
+  const withCfi = progressList.filter((p) => p.cfi != null);
+  if (withCfi.length === 0) return null;
+
+  const sorted = [...withCfi].sort((a, b) => {
+    // Primary: most recently updated wins
     const timeDiff = new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
     if (timeDiff !== 0) return timeDiff;
 
+    // Tiebreaker: higher total vector clock count wins (more writes = more recent activity)
     const totalA = Object.values(a.vector_clock).reduce((s, v) => s + v, 0);
     const totalB = Object.values(b.vector_clock).reduce((s, v) => s + v, 0);
-    return totalB - totalA;
+    if (totalB !== totalA) return totalB - totalA;
+
+    // Final tiebreaker: higher progress percent wins
+    const percentA = a.progress_percent ?? 0;
+    const percentB = b.progress_percent ?? 0;
+    return percentB - percentA;
   });
 
   return sorted[0].cfi;

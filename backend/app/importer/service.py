@@ -6,6 +6,7 @@ from app.importer.models import ImportFolder, ImportTask
 from app.importer.schemas import ImportFolderCreate, ImportFolderUpdate, ImportStats
 from app.config import get_settings
 from app.core.exceptions import NotFoundError
+from app.admin.service import log_action
 import uuid
 
 settings = get_settings()
@@ -15,6 +16,12 @@ async def create_folder(db: AsyncSession, data: ImportFolderCreate, user_id: uui
     folder = ImportFolder(path=data.path, scan_interval_seconds=data.scan_interval_seconds, created_by=user_id)
     db.add(folder)
     await db.flush()
+
+    await log_action(
+        db, user_id, "import.folder_create",
+        resource_type="import_folder", resource_id=folder.id,
+        details={"path": data.path},
+    )
     return folder
 
 
@@ -44,7 +51,11 @@ async def delete_folder(db: AsyncSession, folder_id: uuid.UUID) -> None:
     await db.delete(folder)
 
 
-async def trigger_scan(folder_id: uuid.UUID) -> None:
+async def trigger_scan(db: AsyncSession, folder_id: uuid.UUID, operator_id: uuid.UUID) -> None:
+    await log_action(
+        db, operator_id, "import.scan_trigger",
+        resource_type="import_folder", resource_id=folder_id,
+    )
     redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     await redis.enqueue_job("scan_import_folder", str(folder_id))
     await redis.close()
@@ -68,7 +79,11 @@ async def get_tasks(
     return list(result.scalars().all()), total
 
 
-async def retry_task(task_id: uuid.UUID) -> None:
+async def retry_task(db: AsyncSession, task_id: uuid.UUID, operator_id: uuid.UUID) -> None:
+    await log_action(
+        db, operator_id, "import.task_retry",
+        resource_type="import_task", resource_id=task_id,
+    )
     redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     await redis.enqueue_job("process_import_task", str(task_id))
     await redis.close()

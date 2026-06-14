@@ -8,6 +8,7 @@ from app.config import get_settings
 from app.db.base import Base
 from app.users.models import User, Session
 from app.books.models import Book, Tag, BookTag
+from app.books.metadata_models import BookMetadata
 from app.reader.models import ReadingProgress
 from app.importer.models import ImportFolder, ImportTask
 from app.admin.models import AuditLog

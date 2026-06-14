@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { booksApi } from '@/api/books';
-import { Book } from '@/types/book';
+import { Book, Tag } from '@/types/book';
 import { BookCard } from '@/components/books/BookCard';
 import { SearchBar } from '@/components/books/SearchBar';
 import { Pagination } from '@/components/common/Pagination';
@@ -10,12 +10,19 @@ export default function Library() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [formatFilter, setFormatFilter] = useState('');
+  const [tagFilter, setTagFilter] = useState('');
+  const [allTags, setAllTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
 
   const pageSize = 24;
+
+  useEffect(() => {
+    booksApi.getTags().then(({ data }) => setAllTags(data)).catch(() => {});
+  }, []);
 
   const fetchBooks = useCallback(async () => {
     setLoading(true);
@@ -23,19 +30,23 @@ export default function Library() {
       const { data } = await booksApi.search({
         q: query || undefined,
         format: formatFilter || undefined,
+        tag: tagFilter || undefined,
         sort_by: sortBy,
         sort_order: sortOrder,
         page,
         page_size: pageSize,
       });
-      setBooks(data);
-      setTotalPages(Math.max(1, Math.ceil((data.length === pageSize ? page * pageSize + 1 : (page - 1) * pageSize + data.length) / pageSize)));
+      setBooks(data.items);
+      setTotal(data.total);
+      setTotalPages(data.total_pages);
     } catch {
       setBooks([]);
+      setTotal(0);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
-  }, [query, page, sortBy, sortOrder, formatFilter]);
+  }, [query, page, sortBy, sortOrder, formatFilter, tagFilter]);
 
   useEffect(() => {
     fetchBooks();
@@ -43,7 +54,7 @@ export default function Library() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sortBy, sortOrder, formatFilter]);
+  }, [query, sortBy, sortOrder, formatFilter, tagFilter]);
 
   return (
     <div className="space-y-6">
@@ -51,7 +62,17 @@ export default function Library() {
         <div className="flex-1 w-full">
           <SearchBar value={query} onChange={setQuery} />
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <select
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            className="px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
+          >
+            <option value="">All Tags</option>
+            {allTags.map((tag) => (
+              <option key={tag.id} value={tag.name}>{tag.name}</option>
+            ))}
+          </select>
           <select
             value={formatFilter}
             onChange={(e) => setFormatFilter(e.target.value)}
@@ -79,6 +100,10 @@ export default function Library() {
           </select>
         </div>
       </div>
+
+      {!loading && total > 0 && (
+        <p className="text-sm text-gray-500 dark:text-gray-400">{total} books found</p>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">

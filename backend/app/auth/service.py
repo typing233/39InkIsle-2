@@ -6,6 +6,7 @@ from app.core.security import hash_password, verify_password
 from app.core.exceptions import ConflictError, UnauthorizedError
 from app.auth.jwt import create_access_token, create_refresh_token, decode_token
 from app.auth.schemas import UserRegister, UserLogin, TokenResponse
+from app.admin.service import log_action
 import uuid
 
 
@@ -50,6 +51,13 @@ async def login_user(
     )
     db.add(session)
     await db.flush()
+
+    await log_action(
+        db, user.id, "user.login",
+        resource_type="session", resource_id=session.id,
+        details={"device": data.device_name, "ip": ip_address},
+        ip_address=ip_address,
+    )
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
